@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Salameh 2008 Holter Percentile Calculator</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                sans-serif;
+            max-width: 720px;
+            margin: 2rem auto;
+            padding: 1rem;
+            line-height: 1.5;
+        }
+        label {
+            display: block;
+            margin-top: 0.75rem;
+        }
+        input, select, button {
+            margin-top: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            font-size: 1rem;
+        }
+        button {
+            margin-top: 1rem;
+        }
+        #result {
+            margin-top: 1.5rem;
+            font-weight: 600;
+        }
+        .note {
+            font-size: 0.85rem;
+            color: #555;
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <h1>Salameh 2008 Holter Percentile Calculator</h1>
+
+    <div class="note">
+        Notes: <br>
+        Inputs accept both dot and comma as decimal separator (e.g. 10.5 or 10,5).<br>
+        Based on Salameh et al., Cardiol Young 2008.
+    </div>
+
+    <form id="holter-form" onsubmit="event.preventDefault(); calculate();">
+        <table class="form-table">
+            <tbody>
+                <tr>
+                    <td><label for="sex">Sex:</label></td>
+                    <td>
+                        <select id="sex">
+                            <option value="male">Male (m)</option>
+                            <option value="female">Female (f)</option>
+                        </select>
+                    </td>
+                </tr>
+                <tr>
+                    <td><label for="age">Age (years):</label></td>
+                    <td><input id="age" type="text" inputmode="decimal" placeholder="e.g. 10,5"></td>
+                </tr>
+                <tr>
+                    <td><label for="min_hr">minHR (bpm):</label></td>
+                    <td><input id="min_hr" type="text" inputmode="decimal" placeholder="e.g. 60"></td>
+                </tr>
+                <tr>
+                    <td><label for="mean_hr">avrHR (bpm):</label></td>
+                    <td><input id="mean_hr" type="text" inputmode="decimal" placeholder="e.g. 85"></td>
+                </tr>
+                <tr>
+                    <td><label for="max_rr">maxRR (sec):</label></td>
+                    <td><input id="max_rr" type="text" inputmode="decimal" placeholder="e.g. 1,2"></td>
+                </tr>
+            </tbody>
+        </table>
+        <button type="submit">Calculate</button>
+    </form>
+
+    <div id="result"></div>
+
+    <script>
+        // --- Helpers ---
+
+        function toNumber(value) {
+            // Allow both "10.5" and "10,5"
+            if (typeof value !== "string") return NaN;
+            const normalized = value.trim().replace(",", ".");
+            return parseFloat(normalized);
+        }
+
+        function formatF0(x) {
+            // No decimal places, comma as decimal separator (though integer)
+            if (!isFinite(x)) return "";
+            return Math.round(x).toString().replace(".", ",");
+        }
+
+        function formatF1(x) {
+            // One decimal place, comma as decimal separator
+            if (!isFinite(x)) return "";
+            return x.toFixed(1).replace(".", ",");
+        }
+
+        // Standard normal CDF via erf approximation
+        function erf(x) {
+            // Abramowitz & Stegun 7.1.26
+            const sign = x < 0 ? -1 : 1;
+            const absX = Math.abs(x);
+
+            const a1 = 0.254829592;
+            const a2 = -0.284496736;
+            const a3 = 1.421413741;
+            const a4 = -1.453152027;
+            const a5 = 1.061405429;
+            const p = 0.3275911;
+
+            const t = 1 / (1 + p * absX);
+            const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-absX * absX);
+
+            return sign * y;
+        }
+
+        function cdf(z) {
+            return 0.5 * (1 + erf(z / Math.sqrt(2)));
+        }
+
+        // --- Salameh model functions (p05, median, p95) ---
+
+        function minHrMale(age) {
+            const p05 = 27.56 + 42.10 * Math.exp(-0.22 * age);
+            const median = 42.10 + 42.23 * Math.exp(-0.22 * age);
+            const p95 = 56.65 + 42.35 * Math.exp(-0.22 * age);
+            return [p05, median, p95];
+        }
+
+        function meanHrMale(age) {
+            const p05 = 51.69 + 63.74 * Math.exp(-0.18 * age);
+            const median = 70.83 + 63.89 * Math.exp(-0.18 * age);
+            const p95 = 89.98 + 64.04 * Math.exp(-0.18 * age);
+            return [p05, median, p95];
+        }
+
+        function maxRrMale(age) {
+            const p05 = 0.47 * (1 - Math.exp(-244.92 * age)) +
+                        1.03 * (1 - Math.exp(-0.07 * age));
+            const median = 0.92 * (1 - Math.exp(-632.08 * age)) +
+                           1.03 * (1 - Math.exp(-0.07 * age));
+            const p95 = 1.36 * (1 - Math.exp(-105627.30 * age)) +
+                        1.03 * (1 - Math.exp(-0.07 * age));
+            return [p05, median, p95];
+        }
+
+        function minHrFemale(age) {
+            const p05 = 31.23 + 35.53 * Math.exp(-0.19 * age);
+            const median = 45.60 + 35.71 * Math.exp(-0.19 * age);
+            const p95 = 59.97 + 35.89 * Math.exp(-0.19 * age);
+            return [p05, median, p95];
+        }
+
+        function meanHrFemale(age) {
+            const p05 = 54.78 + 60.12 * Math.exp(-0.16 * age);
+            const median = 75.03 + 60.35 * Math.exp(-0.16 * age);
+            const p95 = 95.28 + 60.57 * Math.exp(-0.16 * age);
+            return [p05, median, p95];
+        }
+
+        function maxRrFemale(age) {
+            const p05 = 0.55 * (1 - Math.exp(-176.39 * age)) +
+                        0.78 * (1 - Math.exp(-0.075 * age));
+            const median = 0.93 * (1 - Math.exp(-314.82 * age)) +
+                           0.78 * (1 - Math.exp(-0.07 * age));
+            const p95 = 1.30 * (1 - Math.exp(-2199.18 * age)) +
+                        0.79 * (1 - Math.exp(-0.072 * age));
+            return [p05, median, p95];
+        }
+
+        function getModel(gender, param) {
+            const models = {
+                male: {
+                    min_hr: minHrMale,
+                    mean_hr: meanHrMale,
+                    max_rr: maxRrMale
+                },
+                female: {
+                    min_hr: minHrFemale,
+                    mean_hr: meanHrFemale,
+                    max_rr: maxRrFemale
+                }
+            };
+            return models[gender][param];
+        }
+
+        // --- Main calculation ---
+
+        function calculate() {
+            const age = toNumber(document.getElementById("age").value);
+            const sex = document.getElementById("sex").value;
+            const minHr = toNumber(document.getElementById("min_hr").value);
+            const meanHr = toNumber(document.getElementById("mean_hr").value);
+            const maxRr = toNumber(document.getElementById("max_rr").value);
+
+            const resultDiv = document.getElementById("result");
+
+            if (!isFinite(age) || age < 0) {
+                resultDiv.textContent = "Please provide a valid non-negative age.";
+                return;
+            }
+            const params = ["min_hr", "mean_hr", "max_rr"];
+            const units = ["/min", "/min", "sek"];
+            const labels = ["minHR", "śrHR", "maxRR"];
+            const obsVals = [minHr, meanHr, maxRr];
+            const obsIsValid = obsVals.map((val) => isFinite(val));
+            const obsProvided = obsIsValid.some((val) => val);
+
+            const z01 = 2.3263478740408408;
+            const z05 = 1.6448536269514722;
+            const z25 = 0.6744897501960817;
+
+            const percentiles = [
+                { key: "p99", z: z01 },
+                { key: "p95", z: z05, bold: true },
+                { key: "p75", z: z25 },
+                { key: "p50", z: 0, bold: true },
+                { key: "p25", z: -z25 },
+                { key: "p5", z: -z05, bold: true },
+                { key: "p1", z: -z01 }
+            ];
+
+            const valuesByParam = [];
+            const observedPieces = [];
+
+            for (let i = 0; i < params.length; i++) {
+                const param = params[i];
+                const model = getModel(sex, param);
+                const [p05, median, p95] = model(age);
+                const sigma = (p95 - p05) / (2 * z05); // from your Python
+                const formatter = (param === "max_rr") ? formatF1 : formatF0;
+
+                const values = percentiles.map((p) => {
+                    const value = median + p.z * sigma;
+                    return formatter(value);
+                });
+
+                valuesByParam.push(values);
+
+                if (obsIsValid[i]) {
+                    const obs = obsVals[i];
+                    const z = (obs - median) / sigma;
+                    const percentile = cdf(z) * 100;
+                    let pctLabel;
+                    if (percentile > 99) {
+                        pctLabel = ">99";
+                    } else if (percentile < 1) {
+                        pctLabel = "<1";
+                    } else {
+                        pctLabel = formatF0(percentile);
+                    }
+                    const obsStr = formatter(obs);
+                    observedPieces.push(`${labels[i]} ${obsStr}${units[i]} (${pctLabel} pc)`);
+                }
+            }
+
+            const tableRows = percentiles.map((p, idx) => {
+                const labelCell = p.bold ? `<b>${p.key}</b>` : p.key;
+                const cells = valuesByParam.map((vals) => {
+                    const value = vals[idx];
+                    return p.bold ? `<td><b>${value}</b></td>` : `<td>${value}</td>`;
+                }).join("");
+                return `<tr><td>${labelCell}</td>${cells}</tr>`;
+            }).join("");
+
+            const table = `
+                <table style="border-collapse: collapse; margin-top: 0.5rem;">
+                    <thead>
+                        <tr>
+                            <th style="text-align: left; padding-right: 0.75rem;">percentiles</th>
+                            <th style="text-align: left; padding-right: 0.75rem;">minHR (bpm)</th>
+                            <th style="text-align: left; padding-right: 0.75rem;">avrHR (bpm)</th>
+                            <th style="text-align: left;">maxRR (sec)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                    </tbody>
+                </table>
+            `;
+
+            if (obsProvided) {
+                resultDiv.innerHTML = `Observed values:<br>${observedPieces.join(", ")}<br><br>Estimated values for age and sex:${table}`;
+            } else {
+                resultDiv.innerHTML = `Estimated values for age and sex:${table}`;
+            }
+        }
+    </script>
+    
+    <div class="note">
+        Concept and development: JMS.
+    </div>
+
+</body>
+</html>
