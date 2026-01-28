@@ -4,13 +4,24 @@
     <meta charset="UTF-8">
     <title>Salameh 2008 Holter Percentile Calculator</title>
     <style>
+        :root {
+            --male: #1c5fd7;
+            --female: #d13b3b;
+            --panel: #f5f7fb;
+            --panel-border: #cfd8e3;
+            --grid: rgba(20, 30, 40, 0.12);
+            --axis: #334155;
+            --text: #1f2937;
+        }
+
         body {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
                 sans-serif;
-            max-width: 720px;
+            max-width: 1225px;
             margin: 2rem auto;
             padding: 1rem;
             line-height: 1.5;
+            color: var(--text);
         }
         label {
             display: block;
@@ -28,10 +39,129 @@
             margin-top: 1.5rem;
             font-weight: 600;
         }
+        #result-table table {
+            border-collapse: collapse;
+            margin-top: 0.5rem;
+            font-weight: 500;
+        }
+        #result-table th,
+        #result-table td {
+            padding: 0.25rem 0.75rem 0.25rem 0;
+            text-align: left;
+        }
         .note {
             font-size: 0.85rem;
             color: #555;
             margin-top: 0.5rem;
+        }
+        .chart-section {
+            margin-top: 1.5rem;
+        }
+        .chart-section.hidden {
+            display: none;
+        }
+        .chart-section[data-sex="male"] {
+            --accent: var(--male);
+        }
+        .chart-section[data-sex="female"] {
+            --accent: var(--female);
+        }
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 1rem;
+            margin-bottom: 0.75rem;
+        }
+        .chart-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+        }
+        .chart-subtitle {
+            font-size: 0.9rem;
+            color: #475569;
+        }
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+        }
+        @media (max-width: 900px) {
+            .chart-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        .chart-card {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 0.75rem;
+            box-shadow: 0 10px 20px rgba(15, 23, 42, 0.05);
+        }
+        .chart-label {
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+        }
+        .chart-foot {
+            margin-top: 0.35rem;
+            font-size: 0.8rem;
+            color: #475569;
+        }
+        .chart-swatch {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .chart-swatch i {
+            display: inline-block;
+            width: 18px;
+            height: 2px;
+            background: var(--accent);
+        }
+        svg {
+            width: 100%;
+            height: 330px;
+            display: block;
+        }
+        .curve {
+            fill: none;
+            stroke: var(--accent);
+            vector-effect: non-scaling-stroke;
+        }
+        .curve--main {
+            stroke-width: 2.2;
+        }
+        .curve--mid {
+            stroke-width: 1.6;
+            stroke-dasharray: 6 4;
+        }
+        .curve--outer {
+            stroke-width: 1.2;
+            stroke-dasharray: 2 4;
+            opacity: 0.7;
+        }
+        .grid-line {
+            stroke: var(--grid);
+            stroke-width: 1;
+            vector-effect: non-scaling-stroke;
+        }
+        .axis-line {
+            stroke: var(--axis);
+            stroke-width: 1.2;
+            vector-effect: non-scaling-stroke;
+        }
+        .axis-text {
+            font-size: 10px;
+            fill: var(--axis);
+        }
+        .marker-outer {
+            fill: #fff;
+            stroke: var(--accent);
+            stroke-width: 3;
+            filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.35));
+        }
+        .marker-core {
+            fill: var(--accent);
         }
     </style>
 </head>
@@ -78,6 +208,40 @@
     </form>
 
     <div id="result"></div>
+
+    <section id="chart-section" class="chart-section hidden" aria-live="polite">
+        <div class="chart-header">
+            <div class="chart-title">Reference curves and markers</div>
+            <div id="chart-subtitle" class="chart-subtitle"></div>
+        </div>
+        <div class="chart-grid">
+            <div class="chart-card">
+                <div class="chart-label">Min HR (bpm)</div>
+                <svg id="chart-min_hr" role="img" aria-label="Min HR chart"></svg>
+                <div class="chart-foot">
+                    <span class="chart-swatch"><i></i>Median / 25-75 / 5-95</span>
+                </div>
+            </div>
+            <div class="chart-card">
+                <div class="chart-label">Mean HR (bpm)</div>
+                <svg id="chart-mean_hr" role="img" aria-label="Mean HR chart"></svg>
+                <div class="chart-foot">
+                    <span class="chart-swatch"><i></i>Median / 25-75 / 5-95</span>
+                </div>
+            </div>
+            <div class="chart-card">
+                <div class="chart-label">Max RR (sec)</div>
+                <svg id="chart-max_rr" role="img" aria-label="Max RR chart"></svg>
+                <div class="chart-foot">
+                    <span class="chart-swatch"><i></i>Median / 25-75 / 5-95</span>
+                </div>
+            </div>
+            <div class="chart-card">
+                <div class="chart-label">Estimated values for age and sex</div>
+                <div id="result-table"></div>
+            </div>
+        </div>
+    </section>
 
     <script>
         // --- Helpers ---
@@ -190,6 +354,200 @@
             return models[gender][param];
         }
 
+        function createSvgEl(tag) {
+            return document.createElementNS("http://www.w3.org/2000/svg", tag);
+        }
+
+        function buildPath(ages, values, xScale, yScale) {
+            return values.map((v, i) => {
+                const x = xScale(ages[i]);
+                const y = yScale(v);
+                return `${i === 0 ? "M" : "L"}${x} ${y}`;
+            }).join(" ");
+        }
+
+        function renderChart(svg, config, gender, age, obsValue, obsValid) {
+            const width = 630;
+            const height = 360;
+            const margin = { top: 16, right: 16, bottom: 30, left: 40 };
+            const innerW = width - margin.left - margin.right;
+            const innerH = height - margin.top - margin.bottom;
+
+            while (svg.firstChild) {
+                svg.removeChild(svg.firstChild);
+            }
+
+            svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+            const model = getModel(gender, config.param);
+            const ages = [];
+            const p05 = [];
+            const p25 = [];
+            const p50 = [];
+            const p75 = [];
+            const p95 = [];
+            const z05 = 1.6448536269514722;
+            const z25 = 0.6744897501960817;
+
+            for (let a = 0; a <= config.ageMax + 0.001; a += 0.25) {
+                const [p05v, median, p95v] = model(a);
+                const sigma = (p95v - p05v) / (2 * z05);
+                ages.push(a);
+                p05.push(p05v);
+                p50.push(median);
+                p95.push(p95v);
+                p25.push(median - z25 * sigma);
+                p75.push(median + z25 * sigma);
+            }
+
+            let yMax = Math.max(...p95);
+            let yMin = 0;
+            const yPad = (yMax - yMin) * 0.08 || 1;
+            yMax += yPad;
+
+            const tickStep = config.param === "max_rr" ? 0.2 : 10;
+            yMax = Math.ceil(yMax / tickStep) * tickStep;
+
+            const xScale = (val) => margin.left + (val / config.ageMax) * innerW;
+            const yScale = (val) => margin.top + innerH - ((val - yMin) / (yMax - yMin)) * innerH;
+
+            const gridGroup = createSvgEl("g");
+            const axisGroup = createSvgEl("g");
+            const pathGroup = createSvgEl("g");
+            const markerGroup = createSvgEl("g");
+
+            const xTicks = config.ageMax === 25 ? [0, 5, 10, 15, 20, 25] : [0, 5, 10, 15, 20];
+            const yTicks = [];
+            for (let t = yMin; t <= yMax + 0.0001; t += tickStep) {
+                yTicks.push(t);
+            }
+
+            xTicks.forEach((tick) => {
+                const x = xScale(tick);
+                const line = createSvgEl("line");
+                line.setAttribute("x1", x);
+                line.setAttribute("x2", x);
+                line.setAttribute("y1", margin.top);
+                line.setAttribute("y2", margin.top + innerH);
+                line.setAttribute("class", "grid-line");
+                gridGroup.appendChild(line);
+
+                const label = createSvgEl("text");
+                label.setAttribute("x", x);
+                label.setAttribute("y", margin.top + innerH + 18);
+                label.setAttribute("text-anchor", "middle");
+                label.setAttribute("class", "axis-text");
+                label.textContent = tick.toString();
+                axisGroup.appendChild(label);
+            });
+
+            yTicks.forEach((t) => {
+                const y = yScale(t);
+                const line = createSvgEl("line");
+                line.setAttribute("x1", margin.left);
+                line.setAttribute("x2", margin.left + innerW);
+                line.setAttribute("y1", y);
+                line.setAttribute("y2", y);
+                line.setAttribute("class", "grid-line");
+                gridGroup.appendChild(line);
+
+                const label = createSvgEl("text");
+                label.setAttribute("x", margin.left - 6);
+                label.setAttribute("y", y + 3);
+                label.setAttribute("text-anchor", "end");
+                label.setAttribute("class", "axis-text");
+                label.textContent = config.format(t);
+                axisGroup.appendChild(label);
+            });
+
+            const axisX = createSvgEl("line");
+            axisX.setAttribute("x1", margin.left);
+            axisX.setAttribute("x2", margin.left + innerW);
+            axisX.setAttribute("y1", margin.top + innerH);
+            axisX.setAttribute("y2", margin.top + innerH);
+            axisX.setAttribute("class", "axis-line");
+            axisGroup.appendChild(axisX);
+
+            const axisY = createSvgEl("line");
+            axisY.setAttribute("x1", margin.left);
+            axisY.setAttribute("x2", margin.left);
+            axisY.setAttribute("y1", margin.top);
+            axisY.setAttribute("y2", margin.top + innerH);
+            axisY.setAttribute("class", "axis-line");
+            axisGroup.appendChild(axisY);
+
+            const axisLabel = createSvgEl("text");
+            axisLabel.setAttribute("x", margin.left + innerW / 2);
+            axisLabel.setAttribute("y", height - 6);
+            axisLabel.setAttribute("text-anchor", "middle");
+            axisLabel.setAttribute("class", "axis-text");
+            axisLabel.textContent = "age (years)";
+            axisGroup.appendChild(axisLabel);
+
+            const curves = [
+                { values: p95, className: "curve curve--outer" },
+                { values: p75, className: "curve curve--mid" },
+                { values: p50, className: "curve curve--main" },
+                { values: p25, className: "curve curve--mid" },
+                { values: p05, className: "curve curve--outer" }
+            ];
+
+            curves.forEach((curve) => {
+                const path = createSvgEl("path");
+                path.setAttribute("d", buildPath(ages, curve.values, xScale, yScale));
+                path.setAttribute("class", curve.className);
+                pathGroup.appendChild(path);
+            });
+
+            if (obsValid && isFinite(age)) {
+                const markerAge = Math.max(0, Math.min(config.ageMax, age));
+                const markerValue = Math.max(yMin, Math.min(yMax, obsValue));
+                const x = xScale(markerAge);
+                const y = yScale(markerValue);
+                const outer = createSvgEl("circle");
+                outer.setAttribute("cx", x);
+                outer.setAttribute("cy", y);
+                outer.setAttribute("r", 6.5);
+                outer.setAttribute("class", "marker-outer");
+
+                const inner = createSvgEl("circle");
+                inner.setAttribute("cx", x);
+                inner.setAttribute("cy", y);
+                inner.setAttribute("r", 3.2);
+                inner.setAttribute("class", "marker-core");
+
+                const title = createSvgEl("title");
+                title.textContent = `Observed: ${config.format(obsValue)} ${config.unit}`;
+                markerGroup.appendChild(title);
+                markerGroup.appendChild(outer);
+                markerGroup.appendChild(inner);
+            }
+
+            svg.appendChild(gridGroup);
+            svg.appendChild(pathGroup);
+            svg.appendChild(axisGroup);
+            svg.appendChild(markerGroup);
+        }
+
+        function renderCharts(age, sex, obsVals, obsIsValid) {
+            const section = document.getElementById("chart-section");
+            section.dataset.sex = sex;
+            section.classList.remove("hidden");
+            const subtitle = document.getElementById("chart-subtitle");
+            subtitle.textContent = sex === "male" ? "Boys (blue)" : "Girls (red)";
+
+            const configs = [
+                { param: "min_hr", unit: "bpm", ageMax: 20, format: formatF0 },
+                { param: "mean_hr", unit: "bpm", ageMax: 20, format: formatF0 },
+                { param: "max_rr", unit: "sec", ageMax: 25, format: formatF1 }
+            ];
+
+            configs.forEach((config, index) => {
+                const svg = document.getElementById(`chart-${config.param}`);
+                renderChart(svg, config, sex, age, obsVals[index], obsIsValid[index]);
+            });
+        }
+
         // --- Main calculation ---
 
         function calculate() {
@@ -200,9 +558,13 @@
             const maxRr = toNumber(document.getElementById("max_rr").value);
 
             const resultDiv = document.getElementById("result");
+            const resultTable = document.getElementById("result-table");
+            const chartSection = document.getElementById("chart-section");
 
             if (!isFinite(age) || age < 0) {
                 resultDiv.textContent = "Please provide a valid non-negative age.";
+                resultTable.innerHTML = "";
+                chartSection.classList.add("hidden");
                 return;
             }
             const params = ["min_hr", "mean_hr", "max_rr"];
@@ -270,13 +632,13 @@
             }).join("");
 
             const table = `
-                <table style="border-collapse: collapse; margin-top: 0.5rem;">
+                <table>
                     <thead>
                         <tr>
-                            <th style="text-align: left; padding-right: 0.75rem;">percentiles</th>
-                            <th style="text-align: left; padding-right: 0.75rem;">minHR (bpm)</th>
-                            <th style="text-align: left; padding-right: 0.75rem;">avrHR (bpm)</th>
-                            <th style="text-align: left;">maxRR (sec)</th>
+                            <th>percentiles</th>
+                            <th>minHR (bpm)</th>
+                            <th>avrHR (bpm)</th>
+                            <th>maxRR (sec)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -286,15 +648,18 @@
             `;
 
             if (obsProvided) {
-                resultDiv.innerHTML = `Observed values:<br>${observedPieces.join(", ")}<br><br>Estimated values for age and sex:${table}`;
+                resultDiv.innerHTML = `Observed values:<br>${observedPieces.join(", ")}`;
             } else {
-                resultDiv.innerHTML = `Estimated values for age and sex:${table}`;
+                resultDiv.innerHTML = "";
             }
+
+            resultTable.innerHTML = table;
+
+            renderCharts(age, sex, obsVals, obsIsValid);
         }
     </script>
-    
+
     <div class="note">
-        Not for clinical use.<br>
         Concept and development: JMS.
     </div>
 
